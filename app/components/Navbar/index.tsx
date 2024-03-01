@@ -1,8 +1,8 @@
 const Navbar = () => {
     return ( 
         <>
-            <nav>
-                Hello
+            <nav className=" bg-transparent">
+                
             </nav>
         </>
     );
