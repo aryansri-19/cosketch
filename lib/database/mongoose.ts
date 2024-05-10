@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 var isConnected = false;
 export async function connectToMongoDB() {
 
-    if (!process.env.MONGODB_URI) return console.log("No MONGODB_URL found");
+    if (!process.env.MONGODB_URI) return console.log("No MONGODB_URI found");
 
     try {
         if (isConnected) {

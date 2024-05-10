@@ -4,7 +4,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -19,7 +18,7 @@ const Login = () => {
     }
   return (
       <Card className="min-w-[30%]">
-        <div className="flex justify-center items-center">
+        <div className="flex justify-center items-center p-2">
             <Image src='/icon.png' width={50} height={50} alt='CoSketch Logo'/>
             <h1 className="text-3xl font-bold text-orange-500">CoSketch</h1>
         </div>
