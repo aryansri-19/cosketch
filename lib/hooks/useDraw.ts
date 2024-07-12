@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 
-export const useDraw = (onDraw?: ({ctx, currentPoint, prevPoint}: Draw) => void) => {
+export const useDraw = (onDraw?: ({ctx, currentPoint, prevPoint, color}: Draw) => Promise<void>) => {
     const [mouseDown, setMouseDown] = useState(false)
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const prevPoint = useRef<Point | null>(null);
@@ -19,13 +19,13 @@ export const useDraw = (onDraw?: ({ctx, currentPoint, prevPoint}: Draw) => void)
 
         const copyRef = canvasRef.current;
 
-        const moveHandler = (e: MouseEvent) => {
+        const moveHandler = async (e: MouseEvent) => {
             if (!mouseDown) return
             const currentPoint = coordInCanvas(e);
             const ctx = canvasRef.current?.getContext('2d');
             if(!ctx || !currentPoint) return;
 
-            onDraw!({ ctx, currentPoint, prevPoint: prevPoint.current });
+            await onDraw!({ ctx, currentPoint, prevPoint: prevPoint.current, color: 'black' });
             prevPoint.current = currentPoint;
         }
 

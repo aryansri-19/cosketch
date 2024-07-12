@@ -3,49 +3,48 @@ import { useEffect } from "react";
 import { drawFree } from "@/lib/utils";
 import { useDraw } from "@/lib/hooks/useDraw";
 import ToolBar from "../components/ToolBar";
-import { io, Socket } from "socket.io-client";
+import { pusherClient } from "@/lib/pusher";
+import { canvasStateEvent, drawFreeEvent } from "@/lib/actions/draw.action";
 
-var socket: Socket | null;
+const CHANNEL_NAME = "drawing-channel";
 
 const Page = () => {
   const { canvasRef, onMouseDown, clearCanvas } = useDraw(startDrawFree);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
-    async function socketInit() {
-      await fetch("/api/socket", { method: "GET" });
-      socket = io();
 
-      socket.on("canvas-image", (data: string) => {
-        const image = new Image();
-        image.src = data;
-        image.onload = () => ctx?.drawImage(image, 0, 0);
-      });
+    pusherClient.subscribe(CHANNEL_NAME);
 
-      socket.on("draw-free", ({ prevPoint, currentPoint, color }: DrawFree) => {
+    pusherClient.bind("canvas-image", (data: string) => {
+      const image = new Image();
+      image.src = data;
+      image.onload = () => ctx?.drawImage(image, 0, 0);
+    });
+
+    pusherClient.bind(
+      "draw-free",
+      ({ ctx, prevPoint, currentPoint, color }: Draw) => {
         if (!ctx) return;
         drawFree({ prevPoint, currentPoint, ctx, color });
-      });
-      socket.on("clear-canvas", clearCanvas);
-    }
-    socketInit();
+      }
+    );
+
+    pusherClient.bind("clear-canvas", clearCanvas);
+
     return () => {
-      if (socket) {
-        socket.off('draw-free');
-        socket.off('clear-canvas');
-        socket.off('canvas-image');
-      }
+      pusherClient.unsubscribe(CHANNEL_NAME);
+      pusherClient.unbind("canvas-image");
+      pusherClient.unbind("draw-free");
+      pusherClient.unbind("clear-canvas");
     };
-  }, []);
+  }, [canvasRef, clearCanvas]);
 
-  function startDrawFree({ prevPoint, currentPoint, ctx }: Draw) {
-    if(socket) {
-      socket.emit("draw-free", { prevPoint, currentPoint, color: "#000" });
-      drawFree({ prevPoint, currentPoint, ctx, color: "#000" });
+  async function startDrawFree({ prevPoint, currentPoint, ctx, color }: Draw) {
+    await drawFreeEvent({ prevPoint, currentPoint, ctx, color });
 
-      if (canvasRef.current?.toDataURL()) {
-        socket?.emit("canvas-state", canvasRef.current.toDataURL());
-      }
+    if (canvasRef.current?.toDataURL()) {
+      await canvasStateEvent(canvasRef.current.toDataURL());
     }
   }
 
@@ -61,7 +60,7 @@ const Page = () => {
           className="border border-black"
         />
       </div>
-      <ToolBar socket={socket!} clearCanvas={clearCanvas} />
+      <ToolBar clearCanvas={clearCanvas} channelName={CHANNEL_NAME} />
     </>
   );
 };
