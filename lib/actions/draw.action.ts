@@ -1,5 +1,4 @@
 import { pusherServer } from "../pusher";
-import { drawFree } from "../utils";
 
 type Point = {
     x: number;
@@ -18,7 +17,6 @@ const channel = 'drawing-channel';
 export const drawFreeEvent = async (data: Draw) => {
     console.log('draw-free', data);
     await pusherServer.trigger(channel, 'draw-free', data);
-    drawFree(data);
 }
 
 export const canvasStateEvent = async (data: string) => {
