@@ -30,6 +30,7 @@ const COLORS = [
 
 export default function ToolBar({
   clearCanvas,
+  channelName,
   color,
   setColor,
   brushSize,
@@ -40,7 +41,7 @@ export default function ToolBar({
   async function handleClear() {
     clearCanvas();
     try {
-      await clearCanvasEvent();
+      await clearCanvasEvent(channelName);
     } catch (error) {
       console.error("Failed to broadcast clear:", error);
     }
