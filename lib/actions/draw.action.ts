@@ -1,30 +1,41 @@
-import { pusherServer } from "../pusher";
+"use server";
 
-type Point = {
-    x: number;
-    y: number;
-};
+import { getPusherServerInstance } from "@/lib/pusher-server";
 
-type Draw = {
-    prevPoint: Point | null;
-    currentPoint: Point;
-    ctx: CanvasRenderingContext2D;
-    color: string;
-};
+const CHANNEL_NAME = "drawing-channel";
 
-const channel = 'drawing-channel';
-
-export const drawFreeEvent = async (data: Draw) => {
-    console.log('draw-free', data);
-    await pusherServer.trigger(channel, 'draw-free', data);
+interface DrawPayload {
+  prevPoint: Point | null;
+  currentPoint: Point;
+  color: string;
 }
 
-export const canvasStateEvent = async (data: string) => {
-    console.log('canvas-state', data);
-    await pusherServer.trigger(channel, 'canvas-image', data);
+export async function drawFreeEvent(data: DrawPayload): Promise<void> {
+  try {
+    const pusher = getPusherServerInstance();
+    await pusher.trigger(CHANNEL_NAME, "draw-free", data);
+  } catch (error) {
+    console.error("Failed to trigger draw-free event:", error);
+    throw new Error("Failed to broadcast drawing event");
+  }
 }
 
-export const clearCanvasEvent = async () => {
-    console.log('clear-canvas');
-    await pusherServer.trigger(channel, 'clear-canvas', {});
+export async function canvasStateEvent(canvasData: string): Promise<void> {
+  try {
+    const pusher = getPusherServerInstance();
+    await pusher.trigger(CHANNEL_NAME, "canvas-image", canvasData);
+  } catch (error) {
+    console.error("Failed to trigger canvas-image event:", error);
+    throw new Error("Failed to broadcast canvas state");
+  }
+}
+
+export async function clearCanvasEvent(): Promise<void> {
+  try {
+    const pusher = getPusherServerInstance();
+    await pusher.trigger(CHANNEL_NAME, "clear-canvas", {});
+  } catch (error) {
+    console.error("Failed to trigger clear-canvas event:", error);
+    throw new Error("Failed to broadcast clear canvas event");
+  }
 }

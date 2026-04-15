@@ -1,57 +1,153 @@
-import { useEffect, useRef, useState } from "react"
+"use client";
 
-export const useDraw = (onDraw?: ({ctx, currentPoint, prevPoint, color}: Draw) => Promise<void>) => {
-    const [mouseDown, setMouseDown] = useState(false)
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const prevPoint = useRef<Point | null>(null);
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { DrawPayload, Point } from "@/lib/types";
 
-    const onMouseDown = () => setMouseDown(true);
+const THROTTLE_MS = 16; // ~60fps
 
-    const clearCanvas = () => {
-        const canvas = canvasRef.current;
-        if(!canvas) return;
-        const ctx = canvasRef.current.getContext('2d');
-        if(!ctx) return;
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+function throttle<T extends (...args: Parameters<T>) => void>(
+  func: T,
+  limit: number
+): (...args: Parameters<T>) => void {
+  let inThrottle = false;
+  return (...args: Parameters<T>) => {
+    if (!inThrottle) {
+      func(...args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), limit);
     }
+  };
+}
 
-    useEffect(() => {
+interface UseDrawOptions {
+  onDraw?: (payload: DrawPayload) => Promise<void> | void;
+  color?: string;
+  lineWidth?: number;
+}
 
-        const copyRef = canvasRef.current;
+interface UseDrawReturn {
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  onMouseDown: () => void;
+  clearCanvas: () => void;
+  isDrawing: boolean;
+}
 
-        const moveHandler = async (e: MouseEvent) => {
-            if (!mouseDown) return
-            const currentPoint = coordInCanvas(e);
-            const ctx = canvasRef.current?.getContext('2d');
-            if(!ctx || !currentPoint) return;
+export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
+  const { onDraw, color = "black", lineWidth = 5 } = options;
 
-            await onDraw!({ ctx, currentPoint, prevPoint: prevPoint.current, color: 'black' });
-            prevPoint.current = currentPoint;
-        }
+  const [isDrawing, setIsDrawing] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prevPointRef = useRef<Point | null>(null);
+  const isDrawingRef = useRef(false);
 
-        const coordInCanvas = (e: MouseEvent) => {
-            const canvas = canvasRef.current
-            if(!canvas) return;
-            
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            return { x, y }
-        }
+  // Sync isDrawing state with ref for event handlers
+  useEffect(() => {
+    isDrawingRef.current = isDrawing;
+  }, [isDrawing]);
 
-        const mouseUpHandler = () => {
-            setMouseDown(false);
-            prevPoint.current = null;
-        }
-        canvasRef.current?.addEventListener('mousemove', moveHandler);
-        window.addEventListener('mouseup', mouseUpHandler);
+  const clearCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-        return () => {
-            copyRef?.removeEventListener('mousemove', moveHandler);
-            window.removeEventListener('mouseup', mouseUpHandler);
-        }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    }, [onDraw, mouseDown]);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }, []);
 
-    return { canvasRef, onMouseDown, clearCanvas };
+  const drawLocal = useCallback(
+    (payload: DrawPayload) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const { prevPoint, currentPoint } = payload;
+      const startPoint = prevPoint ?? currentPoint;
+
+      ctx.beginPath();
+      ctx.lineWidth = lineWidth;
+      ctx.strokeStyle = color;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.moveTo(startPoint.x, startPoint.y);
+      ctx.lineTo(currentPoint.x, currentPoint.y);
+      ctx.stroke();
+    },
+    [color, lineWidth]
+  );
+
+  const handleDraw = useCallback(
+    async (e: MouseEvent) => {
+      if (!isDrawingRef.current) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const currentPoint: Point = { x, y };
+
+      const payload: DrawPayload = {
+        prevPoint: prevPointRef.current,
+        currentPoint,
+        color,
+      };
+
+      // Draw locally immediately
+      drawLocal(payload);
+
+      // Notify parent (throttled externally if needed)
+      await onDraw?.(payload);
+
+      prevPointRef.current = currentPoint;
+    },
+    [color, drawLocal, onDraw]
+  );
+
+  const throttledHandleDraw = useCallback(
+    throttle(handleDraw, THROTTLE_MS),
+    [handleDraw]
+  );
+
+  const onMouseDown = useCallback(() => {
+    setIsDrawing(true);
+    isDrawingRef.current = true;
+  }, []);
+
+  const onMouseUp = useCallback(() => {
+    setIsDrawing(false);
+    isDrawingRef.current = false;
+    prevPointRef.current = null;
+  }, []);
+
+  const onMouseLeave = useCallback(() => {
+    setIsDrawing(false);
+    isDrawingRef.current = false;
+    prevPointRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    canvas.addEventListener("mousemove", throttledHandleDraw);
+    window.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("mouseleave", onMouseLeave);
+
+    return () => {
+      canvas.removeEventListener("mousemove", throttledHandleDraw);
+      window.removeEventListener("mouseup", onMouseUp);
+      canvas.removeEventListener("mouseleave", onMouseLeave);
+    };
+  }, [throttledHandleDraw, onMouseUp, onMouseLeave]);
+
+  return {
+    canvasRef,
+    onMouseDown,
+    clearCanvas,
+    isDrawing,
+  };
 }
