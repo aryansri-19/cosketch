@@ -47,19 +47,29 @@ interface UseDrawOptions {
 interface UseDrawReturn {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void;
+  onTouchStart: (e: React.TouchEvent<HTMLCanvasElement>) => void;
   clearCanvas: () => void;
   isDrawing: boolean;
 }
 
 export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
-  const { onDraw, color = "black", lineWidth = 5 } = options;
+  const { onDraw, color = "#000000", lineWidth = 5 } = options;
 
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevPointRef = useRef<Point | null>(null);
   const isDrawingRef = useRef(false);
+  const colorRef = useRef(color);
+  const lineWidthRef = useRef(lineWidth);
 
-  // Sync isDrawing state with ref for event handlers
+  useEffect(() => {
+    colorRef.current = color;
+  }, [color]);
+
+  useEffect(() => {
+    lineWidthRef.current = lineWidth;
+  }, [lineWidth]);
+
   useEffect(() => {
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
@@ -74,34 +84,29 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
-  const drawLine = useCallback(
-    (from: Point, to: Point) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+  const drawLine = useCallback((from: Point, to: Point) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-      ctx.beginPath();
-      ctx.lineWidth = lineWidth;
-      ctx.strokeStyle = color;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.stroke();
-    },
-    [color, lineWidth]
-  );
+    ctx.beginPath();
+    ctx.lineWidth = lineWidthRef.current;
+    ctx.strokeStyle = colorRef.current;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }, []);
 
-  // Throttled broadcast function
   const throttledBroadcast = useRef(
     throttle((payload: DrawPayload) => {
       onDraw?.(payload);
     }, BROADCAST_THROTTLE_MS)
   );
 
-  // Update throttled function when onDraw changes
   useEffect(() => {
     throttledBroadcast.current = throttle((payload: DrawPayload) => {
       onDraw?.(payload);
@@ -124,21 +129,48 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
       const prevPoint = prevPointRef.current;
 
       if (prevPoint) {
-        // Draw line from previous point to current point
         drawLine(prevPoint, currentPoint);
-
-        // Broadcast (throttled)
         throttledBroadcast.current({
           prevPoint,
           currentPoint,
-          color,
+          color: colorRef.current,
         });
       }
 
-      // Always update prevPoint to current for next segment
       prevPointRef.current = currentPoint;
     },
-    [color, drawLine]
+    [drawLine]
+  );
+
+  const handleTouchMove = useCallback(
+    (e: TouchEvent) => {
+      if (!isDrawingRef.current) return;
+      e.preventDefault();
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const currentPoint: Point = {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
+      };
+
+      const prevPoint = prevPointRef.current;
+
+      if (prevPoint) {
+        drawLine(prevPoint, currentPoint);
+        throttledBroadcast.current({
+          prevPoint,
+          currentPoint,
+          color: colorRef.current,
+        });
+      }
+
+      prevPointRef.current = currentPoint;
+    },
+    [drawLine]
   );
 
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -151,13 +183,34 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
       y: e.clientY - rect.top,
     };
 
-    // Set the starting point
+    prevPointRef.current = point;
+    setIsDrawing(true);
+    isDrawingRef.current = true;
+  }, []);
+
+  const onTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    const point: Point = {
+      x: touch.clientX - rect.left,
+      y: touch.clientY - rect.top,
+    };
+
     prevPointRef.current = point;
     setIsDrawing(true);
     isDrawingRef.current = true;
   }, []);
 
   const onMouseUp = useCallback(() => {
+    setIsDrawing(false);
+    isDrawingRef.current = false;
+    prevPointRef.current = null;
+  }, []);
+
+  const onTouchEnd = useCallback(() => {
     setIsDrawing(false);
     isDrawingRef.current = false;
     prevPointRef.current = null;
@@ -173,21 +226,35 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Use non-throttled handler for smooth local drawing
     canvas.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     canvas.addEventListener("mouseleave", onMouseLeave);
+
+    canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd);
+    canvas.addEventListener("touchcancel", onTouchEnd);
 
     return () => {
       canvas.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("mouseleave", onMouseLeave);
+
+      canvas.removeEventListener("touchmove", handleTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [handleMouseMove, onMouseUp, onMouseLeave]);
+  }, [
+    handleMouseMove,
+    handleTouchMove,
+    onMouseUp,
+    onTouchEnd,
+    onMouseLeave,
+  ]);
 
   return {
     canvasRef,
     onMouseDown,
+    onTouchStart,
     clearCanvas,
     isDrawing,
   };
