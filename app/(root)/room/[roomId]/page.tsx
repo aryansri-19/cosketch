@@ -22,6 +22,7 @@ export default function RoomPage() {
 
   const pusherRef = useRef<PusherClient | null>(null);
   const channelRef = useRef<ReturnType<PusherClient["subscribe"]> | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [color, setColor] = useState("#000000");
   const [brushSize, setBrushSize] = useState(5);
@@ -37,9 +38,10 @@ export default function RoomPage() {
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
+  // Remote drawing handler - uses the canvas ref directly
   const handleRemoteDraw = useCallback(
     (payload: DrawPayload) => {
-      const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+      const canvas = canvasRef.current;
       if (!canvas) return;
 
       const ctx = canvas.getContext("2d");
@@ -61,7 +63,7 @@ export default function RoomPage() {
   );
 
   const handleRemoteCanvasImage = useCallback((dataUrl: string) => {
-    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+    const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
@@ -93,8 +95,19 @@ export default function RoomPage() {
     [activeColor, channelName]
   );
 
-  const { canvasRef, onMouseDown, onTouchStart, clearCanvas, isDrawing } =
+  const clearCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }, []);
+
+  const { onMouseDown, onTouchStart, isDrawing } =
     useDraw({
+      canvasRef,
       onDraw: handleStartDraw,
       color: activeColor,
       lineWidth: brushSize,
@@ -106,6 +119,7 @@ export default function RoomPage() {
 
     const setupPusher = async () => {
       try {
+        console.log("Setting up Pusher for channel:", channelName);
         const pusher = getPusherClientInstance();
         if (!isMounted) return;
 
@@ -114,16 +128,35 @@ export default function RoomPage() {
         const channel = pusher.subscribe(channelName);
         channelRef.current = channel;
 
-        channel.bind("draw-free", handleRemoteDraw);
-        channel.bind("canvas-image", handleRemoteCanvasImage);
-        channel.bind("clear-canvas", clearCanvas);
+        // Bind events with explicit logging
+        channel.bind("draw-free", (data: DrawPayload) => {
+          console.log("Received draw-free event:", data);
+          handleRemoteDraw(data);
+        });
+        
+        channel.bind("canvas-image", (data: string) => {
+          console.log("Received canvas-image event");
+          handleRemoteCanvasImage(data);
+        });
+        
+        channel.bind("clear-canvas", () => {
+          console.log("Received clear-canvas event");
+          clearCanvas();
+        });
 
         pusher.connection.bind("connected", () => {
+          console.log("Pusher connected to channel:", channelName);
           if (isMounted) setIsConnected(true);
         });
 
         pusher.connection.bind("disconnected", () => {
+          console.log("Pusher disconnected");
           if (isMounted) setIsConnected(false);
+        });
+
+        // Bind connection error
+        pusher.connection.bind("error", (error: Error) => {
+          console.error("Pusher connection error:", error);
         });
 
         setIsConnected(pusher.connection.state === "connected");
@@ -135,12 +168,13 @@ export default function RoomPage() {
     setupPusher();
 
     return () => {
+      console.log("Cleaning up Pusher connection");
       isMounted = false;
 
       if (channelRef.current) {
-        channelRef.current.unbind("draw-free", handleRemoteDraw);
-        channelRef.current.unbind("canvas-image", handleRemoteCanvasImage);
-        channelRef.current.unbind("clear-canvas", clearCanvas);
+        channelRef.current.unbind("draw-free");
+        channelRef.current.unbind("canvas-image");
+        channelRef.current.unbind("clear-canvas");
       }
 
       if (pusherRef.current) {

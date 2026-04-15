@@ -39,24 +39,22 @@ function throttle<T extends (...args: any[]) => void>(
 }
 
 interface UseDrawOptions {
+  canvasRef: React.RefObject<HTMLCanvasElement>;
   onDraw?: (payload: DrawPayload) => Promise<void> | void;
   color?: string;
   lineWidth?: number;
 }
 
 interface UseDrawReturn {
-  canvasRef: React.RefObject<HTMLCanvasElement>;
   onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   onTouchStart: (e: React.TouchEvent<HTMLCanvasElement>) => void;
-  clearCanvas: () => void;
   isDrawing: boolean;
 }
 
-export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
-  const { onDraw, color = "#000000", lineWidth = 5 } = options;
+export function useDraw(options: UseDrawOptions): UseDrawReturn {
+  const { canvasRef, onDraw, color = "#000000", lineWidth = 5 } = options;
 
   const [isDrawing, setIsDrawing] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevPointRef = useRef<Point | null>(null);
   const isDrawingRef = useRef(false);
   const colorRef = useRef(color);
@@ -74,16 +72,6 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     isDrawingRef.current = isDrawing;
   }, [isDrawing]);
 
-  const clearCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }, []);
-
   const drawLine = useCallback((from: Point, to: Point) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -99,7 +87,7 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
-  }, []);
+  }, [canvasRef]);
 
   const throttledBroadcast = useRef(
     throttle((payload: DrawPayload) => {
@@ -139,7 +127,7 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
 
       prevPointRef.current = currentPoint;
     },
-    [drawLine]
+    [canvasRef, drawLine]
   );
 
   const handleTouchMove = useCallback(
@@ -170,7 +158,7 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
 
       prevPointRef.current = currentPoint;
     },
-    [drawLine]
+    [canvasRef, drawLine]
   );
 
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -186,7 +174,7 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     prevPointRef.current = point;
     setIsDrawing(true);
     isDrawingRef.current = true;
-  }, []);
+  }, [canvasRef]);
 
   const onTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -202,7 +190,7 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     prevPointRef.current = point;
     setIsDrawing(true);
     isDrawingRef.current = true;
-  }, []);
+  }, [canvasRef]);
 
   const onMouseUp = useCallback(() => {
     setIsDrawing(false);
@@ -244,6 +232,7 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
       canvas.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [
+    canvasRef,
     handleMouseMove,
     handleTouchMove,
     onMouseUp,
@@ -252,10 +241,8 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
   ]);
 
   return {
-    canvasRef,
     onMouseDown,
     onTouchStart,
-    clearCanvas,
     isDrawing,
   };
 }
