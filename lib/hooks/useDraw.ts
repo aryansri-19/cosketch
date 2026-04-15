@@ -3,18 +3,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrawPayload, Point } from "@/lib/types";
 
-const THROTTLE_MS = 16; // ~60fps
+const BROADCAST_THROTTLE_MS = 50;
 
-function throttle<T extends (...args: Parameters<T>) => void>(
+function throttle<T extends (...args: any[]) => void>(
   func: T,
   limit: number
 ): (...args: Parameters<T>) => void {
   let inThrottle = false;
+  let pendingArgs: Parameters<T> | null = null;
+
+  const execute = () => {
+    if (pendingArgs) {
+      (func as (...args: any[]) => void)(...pendingArgs);
+      pendingArgs = null;
+      inThrottle = true;
+      setTimeout(() => {
+        inThrottle = false;
+        if (pendingArgs) execute();
+      }, limit);
+    }
+  };
+
   return (...args: Parameters<T>) => {
     if (!inThrottle) {
       func(...args);
       inThrottle = true;
-      setTimeout(() => (inThrottle = false), limit);
+      setTimeout(() => {
+        inThrottle = false;
+        if (pendingArgs) execute();
+      }, limit);
+    } else {
+      pendingArgs = args;
     }
   };
 }
@@ -27,7 +46,7 @@ interface UseDrawOptions {
 
 interface UseDrawReturn {
   canvasRef: React.RefObject<HTMLCanvasElement>;
-  onMouseDown: () => void;
+  onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   clearCanvas: () => void;
   isDrawing: boolean;
 }
@@ -55,64 +74,85 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
-  const drawLocal = useCallback(
-    (payload: DrawPayload) => {
+  const drawLine = useCallback(
+    (from: Point, to: Point) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const { prevPoint, currentPoint } = payload;
-      const startPoint = prevPoint ?? currentPoint;
-
       ctx.beginPath();
       ctx.lineWidth = lineWidth;
       ctx.strokeStyle = color;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.moveTo(startPoint.x, startPoint.y);
-      ctx.lineTo(currentPoint.x, currentPoint.y);
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
       ctx.stroke();
     },
     [color, lineWidth]
   );
 
-  const handleDraw = useCallback(
-    async (e: MouseEvent) => {
+  // Throttled broadcast function
+  const throttledBroadcast = useRef(
+    throttle((payload: DrawPayload) => {
+      onDraw?.(payload);
+    }, BROADCAST_THROTTLE_MS)
+  );
+
+  // Update throttled function when onDraw changes
+  useEffect(() => {
+    throttledBroadcast.current = throttle((payload: DrawPayload) => {
+      onDraw?.(payload);
+    }, BROADCAST_THROTTLE_MS);
+  }, [onDraw]);
+
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
       if (!isDrawingRef.current) return;
 
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const currentPoint: Point = { x, y };
-
-      const payload: DrawPayload = {
-        prevPoint: prevPointRef.current,
-        currentPoint,
-        color,
+      const currentPoint: Point = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
       };
 
-      // Draw locally immediately
-      drawLocal(payload);
+      const prevPoint = prevPointRef.current;
 
-      // Notify parent (throttled externally if needed)
-      await onDraw?.(payload);
+      if (prevPoint) {
+        // Draw line from previous point to current point
+        drawLine(prevPoint, currentPoint);
 
+        // Broadcast (throttled)
+        throttledBroadcast.current({
+          prevPoint,
+          currentPoint,
+          color,
+        });
+      }
+
+      // Always update prevPoint to current for next segment
       prevPointRef.current = currentPoint;
     },
-    [color, drawLocal, onDraw]
+    [color, drawLine]
   );
 
-  const throttledHandleDraw = useCallback(
-    throttle(handleDraw, THROTTLE_MS),
-    [handleDraw]
-  );
+  const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const onMouseDown = useCallback(() => {
+    const rect = canvas.getBoundingClientRect();
+    const point: Point = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+
+    // Set the starting point
+    prevPointRef.current = point;
     setIsDrawing(true);
     isDrawingRef.current = true;
   }, []);
@@ -133,16 +173,17 @@ export function useDraw(options: UseDrawOptions = {}): UseDrawReturn {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    canvas.addEventListener("mousemove", throttledHandleDraw);
+    // Use non-throttled handler for smooth local drawing
+    canvas.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     canvas.addEventListener("mouseleave", onMouseLeave);
 
     return () => {
-      canvas.removeEventListener("mousemove", throttledHandleDraw);
+      canvas.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("mouseleave", onMouseLeave);
     };
-  }, [throttledHandleDraw, onMouseUp, onMouseLeave]);
+  }, [handleMouseMove, onMouseUp, onMouseLeave]);
 
   return {
     canvasRef,

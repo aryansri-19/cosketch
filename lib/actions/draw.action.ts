@@ -1,14 +1,9 @@
 "use server";
 
 import { getPusherServerInstance } from "@/lib/pusher-server";
+import type { DrawPayload } from "@/lib/types";
 
 const CHANNEL_NAME = "drawing-channel";
-
-interface DrawPayload {
-  prevPoint: Point | null;
-  currentPoint: Point;
-  color: string;
-}
 
 export async function drawFreeEvent(data: DrawPayload): Promise<void> {
   try {
