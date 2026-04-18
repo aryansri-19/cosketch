@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { clearCanvasEvent } from "@/lib/actions/draw.action";
 import { Eraser, Pencil, Trash2 } from "lucide-react";
 
@@ -92,17 +93,16 @@ export default function ToolBar({
       </div>
 
       {/* Brush Size */}
-      <div className="flex items-center gap-3 border-r border-border pr-4">
-        <span className="text-sm text-muted-foreground">Size:</span>
-        <input
-          type="range"
-          min="1"
-          max="50"
-          value={brushSize}
-          onChange={(e) => setBrushSize(Number(e.target.value))}
-          className="w-24 accent-primary"
+      <div className="flex items-center gap-3 border-r border-border pr-4 min-w-[140px]">
+        <span className="text-sm text-muted-foreground whitespace-nowrap">Size: {brushSize}</span>
+        <Slider
+          value={[brushSize]}
+          onValueChange={(value) => setBrushSize(value[0])}
+          min={1}
+          max={50}
+          step={1}
+          className="w-24"
         />
-        <span className="text-sm font-medium w-6">{brushSize}</span>
       </div>
 
       {/* Clear Button */}
